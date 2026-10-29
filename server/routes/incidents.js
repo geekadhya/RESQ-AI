@@ -1,21 +1,30 @@
 
 import { Router } from "express";
-import Incident from "../models/incident.js";
+import Incident from "../models/Incident.js";
 
 const router = Router();
+
+const VALID_SEVERITIES = ["Critical", "High", "Medium", "Low"];
+
+const VALID_STATUSES = [
+  "Reported",
+  "Dispatched",
+  "Responding",
+  "Resolved",
+];
 
 // GET all incidents
 router.get("/", async (req, res) => {
   try {
     const incidents = await Incident.find().sort({ createdAt: -1 });
 
-    res.json({
+    return res.json({
       success: true,
       count: incidents.length,
       data: incidents,
     });
-  } catch (error) {
-    res.status(500).json({
+  } catch {
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch incidents",
     });
@@ -34,9 +43,12 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    res.json({ success: true, data: incident });
-  } catch (error) {
-    res.status(400).json({
+    return res.json({
+      success: true,
+      data: incident,
+    });
+  } catch {
+    return res.status(400).json({
       success: false,
       message: "Invalid incident ID",
     });
@@ -46,14 +58,16 @@ router.get("/:id", async (req, res) => {
 // POST a new incident
 router.post("/", async (req, res) => {
   try {
-    const { type, location, severity } = req.body ?? {};
+    const { type, location, severity, latitude, longitude } =
+      req.body ?? {};
 
+    // Validate required fields
     if (
       typeof type !== "string" ||
       !type.trim() ||
       typeof location !== "string" ||
       !location.trim() ||
-      !["Critical", "High", "Medium", "Low"].includes(severity)
+      !VALID_SEVERITIES.includes(severity)
     ) {
       return res.status(400).json({
         success: false,
@@ -61,19 +75,62 @@ router.post("/", async (req, res) => {
       });
     }
 
+    // Coordinates are optional, but must be provided together.
+    const hasLatitude =
+      latitude !== undefined && latitude !== null && latitude !== "";
+    const hasLongitude =
+      longitude !== undefined &&
+      longitude !== null &&
+      longitude !== "";
+
+    if (hasLatitude !== hasLongitude) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude must be provided together.",
+      });
+    }
+
+    let coordinates = {};
+
+    if (hasLatitude && hasLongitude) {
+      // Accept numeric values and numeric strings from JSON clients.
+      const lat = Number(latitude);
+      const lng = Number(longitude);
+
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid latitude or longitude.",
+        });
+      }
+
+      coordinates = {
+        latitude: lat,
+        longitude: lng,
+      };
+    }
+
     const incident = await Incident.create({
       type: type.trim(),
       location: location.trim(),
       severity,
+      ...coordinates,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Incident reported successfully",
       data: incident,
     });
-  } catch (error) {
-    res.status(500).json({
+  } catch {
+    return res.status(500).json({
       success: false,
       message: "Failed to create incident",
     });
@@ -84,14 +141,8 @@ router.post("/", async (req, res) => {
 router.patch("/:id/status", async (req, res) => {
   try {
     const { status } = req.body ?? {};
-    const validStatuses = [
-      "Reported",
-      "Dispatched",
-      "Responding",
-      "Resolved",
-    ];
 
-    if (!validStatuses.includes(status)) {
+    if (!VALID_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
         message: "Invalid incident status",
@@ -111,13 +162,13 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Incident status updated",
       data: incident,
     });
-  } catch (error) {
-    res.status(400).json({
+  } catch {
+    return res.status(400).json({
       success: false,
       message: "Could not update incident. Check the incident ID.",
     });

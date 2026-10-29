@@ -1,5 +1,7 @@
 
 import { useEffect, useMemo, useState } from "react";
+import IncidentLocationPicker from "./components/IncidentLocationPicker.jsx";
+import IncidentDashboardMap from "./components/IncidentDashboardMap.jsx";
 
 const API_BASE = "http://localhost:5000/api";
 
@@ -178,6 +180,8 @@ function ReportModal({ onClose, onSubmit, submitting }) {
   const [location, setLocation] = useState("");
   const [severity, setSeverity] = useState("High");
   const [formError, setFormError] = useState("");
+  const [coordinates, setCoordinates] = useState(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -193,6 +197,8 @@ function ReportModal({ onClose, onSubmit, submitting }) {
         type,
         location: location.trim(),
         severity,
+        latitude: coordinates?.lat ?? null,
+        longitude: coordinates?.lng ?? null,
       });
     } catch (error) {
       setFormError(error.message || "Could not report the incident.");
@@ -282,6 +288,48 @@ function ReportModal({ onClose, onSubmit, submitting }) {
             />
           </div>
 
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-slate-300">
+                  Pinpoint incident location
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Select the location on the map or use GPS.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowLocationPicker(true)}
+                disabled={submitting}
+                className="shrink-0 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20 disabled:opacity-50"
+              >
+                {coordinates ? "Change pin" : "Select on map"}
+              </button>
+            </div>
+
+            {coordinates && (
+              <p className="rounded-lg bg-slate-900 p-3 text-xs text-emerald-300">
+                Location pinned: {coordinates.lat.toFixed(6)},{" "}
+                {coordinates.lng.toFixed(6)}
+              </p>
+            )}
+
+            {showLocationPicker && (
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <IncidentLocationPicker
+                  initialPosition={coordinates}
+                  onConfirm={(position) => {
+                    setCoordinates(position);
+                    setShowLocationPicker(false);
+                  }}
+                  onCancel={() => setShowLocationPicker(false)}
+                />
+              </div>
+            )}
+          </div>
+
           <div>
             <label
               htmlFor="incident-severity"
@@ -340,6 +388,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All");
   const [severityFilter, setSeverityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
@@ -349,8 +398,6 @@ export default function App() {
   const [updatingId, setUpdatingId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Initial load: the loading state already starts as true.
-  // This avoids a synchronous setState call inside useEffect.
   useEffect(() => {
     let cancelled = false;
 
@@ -387,7 +434,6 @@ export default function App() {
     };
   }, []);
 
-  // Used by the refresh and retry buttons.
   async function fetchIncidents() {
     setRefreshing(true);
 
@@ -418,6 +464,9 @@ export default function App() {
         incident.severity.toLowerCase().includes(query) ||
         incident.status.toLowerCase().includes(query);
 
+      const matchesType =
+        typeFilter === "All" || incident.type === typeFilter;
+
       const matchesSeverity =
         severityFilter === "All" ||
         incident.severity === severityFilter;
@@ -426,9 +475,20 @@ export default function App() {
         statusFilter === "All" ||
         incident.status === statusFilter;
 
-      return matchesSearch && matchesSeverity && matchesStatus;
+      return (
+        matchesSearch &&
+        matchesType &&
+        matchesSeverity &&
+        matchesStatus
+      );
     });
-  }, [incidents, search, severityFilter, statusFilter]);
+  }, [
+    incidents,
+    search,
+    typeFilter,
+    severityFilter,
+    statusFilter,
+  ]);
 
   const stats = useMemo(() => {
     return {
@@ -487,14 +547,14 @@ export default function App() {
       setShowForm(false);
       setNotice("Incident saved successfully.");
     } catch (error) {
-  const message = getErrorMessage(
-    error,
-    "Could not save the incident."
-  );
+      const message = getErrorMessage(
+        error,
+        "Could not save the incident."
+      );
 
-  setNotice("");
-  throw new Error(message, { cause: error });
-} finally {
+      setNotice("");
+      throw new Error(message, { cause: error });
+    } finally {
       setSubmitting(false);
     }
   }
@@ -524,9 +584,7 @@ export default function App() {
       );
 
       const result = await readResponse(response);
-      const updatedIncident = normalizeIncident(
-        result.data || result
-      );
+      const updatedIncident = normalizeIncident(result.data || result);
 
       setIncidents((current) =>
         current.map((item) =>
@@ -553,7 +611,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#080d18] text-slate-100">
       <div className="flex min-h-screen">
-        {/* Sidebar */}
         <aside
           className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/[0.08] bg-[#0b1120] transition-transform duration-200 lg:static lg:translate-x-0 ${
             showMobileMenu ? "translate-x-0" : "-translate-x-full"
@@ -615,13 +672,14 @@ export default function App() {
             </p>
 
             <div className="mt-3 space-y-1">
-              <div className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-500">
+              <a
+                href="#live-map"
+                onClick={() => setShowMobileMenu(false)}
+                className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+              >
                 <span>⌖</span>
                 Live map
-                <span className="ml-auto rounded-md border border-white/10 px-2 py-0.5 text-[10px]">
-                  Planned
-                </span>
-              </div>
+              </a>
 
               <div className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-500">
                 <span>🚑</span>
@@ -653,7 +711,6 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Mobile sidebar overlay */}
         {showMobileMenu && (
           <button
             type="button"
@@ -663,9 +720,7 @@ export default function App() {
           />
         )}
 
-        {/* Main content */}
         <main className="min-w-0 flex-1">
-          {/* Top navigation */}
           <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-4 border-b border-white/[0.08] bg-[#080d18]/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <button
@@ -715,7 +770,6 @@ export default function App() {
           </header>
 
           <div className="mx-auto max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
-            {/* Welcome section */}
             <section
               id="overview"
               className="relative overflow-hidden rounded-2xl border border-blue-400/15 bg-gradient-to-br from-blue-500/10 via-[#10192b] to-[#10192b] p-6 sm:p-8"
@@ -761,7 +815,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* Notice */}
             {notice && (
               <div
                 role="status"
@@ -779,7 +832,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Error banner */}
             {apiError && (
               <div
                 role="alert"
@@ -804,7 +856,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Statistics */}
             <section aria-label="Incident statistics">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
@@ -849,7 +900,42 @@ export default function App() {
               </div>
             </section>
 
-            {/* Incidents table */}
+            <section
+              id="live-map"
+              className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 sm:p-6"
+            >
+              <div className="mb-5 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                <div>
+                  <h3 className="font-semibold text-white">
+                    Incident location map
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Map pins show saved incidents with valid coordinates.
+                    Select a pin for details.
+                  </p>
+                </div>
+                <Badge className="border-blue-400/20 bg-blue-400/10 text-blue-300">
+                  {incidents.filter(
+                    (incident) =>
+                      incident.latitude !== null &&
+                      incident.latitude !== undefined &&
+                      incident.longitude !== null &&
+                      incident.longitude !== undefined &&
+                      incident.latitude !== "" &&
+                      incident.longitude !== "" &&
+                      Number.isFinite(Number(incident.latitude)) &&
+                      Number.isFinite(Number(incident.longitude)) &&
+                      Number(incident.latitude) >= -90 &&
+                      Number(incident.latitude) <= 90 &&
+                      Number(incident.longitude) >= -180 &&
+                      Number(incident.longitude) <= 180
+                  ).length}{" "}
+                  locations pinned
+                </Badge>
+              </div>
+              <IncidentDashboardMap incidents={incidents} />
+            </section>
+
             <section
               id="incidents"
               className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]"
@@ -878,6 +964,20 @@ export default function App() {
                       className="w-full rounded-xl border border-white/10 bg-[#0b1120] py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
                     />
                   </div>
+
+                  <select
+                    aria-label="Filter by incident type"
+                    value={typeFilter}
+                    onChange={(event) => setTypeFilter(event.target.value)}
+                    className="rounded-xl border border-white/10 bg-[#0b1120] px-3 py-2.5 text-sm text-slate-300 outline-none focus:border-blue-500"
+                  >
+                    <option value="All">All incident types</option>
+                    {INCIDENT_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
 
                   <select
                     aria-label="Filter by severity"
@@ -1035,9 +1135,7 @@ export default function App() {
                           <td className="px-6 py-4 text-right">
                             <button
                               type="button"
-                              onClick={() =>
-                                updateIncidentStatus(incident)
-                              }
+                              onClick={() => updateIncidentStatus(incident)}
                               disabled={updatingId === incident.id}
                               className={`whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
                                 incident.status === "Resolved"
@@ -1068,7 +1166,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* Bottom dashboard panels */}
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <section
                 id="priority"
@@ -1115,9 +1212,7 @@ export default function App() {
                               {incident.type}
                             </p>
                             <Badge
-                              className={
-                                severityStyles[incident.severity]
-                              }
+                              className={severityStyles[incident.severity]}
                             >
                               {incident.severity}
                             </Badge>
